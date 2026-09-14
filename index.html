@@ -218,7 +218,25 @@
 <body>
 <div id="app"></div>
 
-<script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, doc, setDoc, onSnapshot, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  var firebaseConfig = {
+    apiKey: "AIzaSyC_UCU9R3q2oeN_uEXosJSDdt8ABjzwYe4",
+    authDomain: "crm-financeiro-5b3bc.firebaseapp.com",
+    projectId: "crm-financeiro-5b3bc",
+    storageBucket: "crm-financeiro-5b3bc.firebasestorage.app",
+    messagingSenderId: "828717699898",
+    appId: "1:828717699898:web:b7bd95da9045d13af9b603"
+  };
+
+  var fbApp = initializeApp(firebaseConfig);
+  var db = getFirestore(fbApp);
+  var dataDocRef = doc(db, "financeiro", "data");
+
 (function(){
   "use strict";
 
@@ -241,31 +259,67 @@
     loaded: false
   };
 
-  // ---------- storage ----------
-  function persist(){
+  // ---------- storage (Firestore = synced across devices; localStorage = instant local cache) ----------
+  var CACHE_KEY = 'financeiro-data-cache';
+  var persistTimer = null;
+  var applyingRemote = false;
+
+  function saveCache(){
     try{
-      window.storage.set('financeiro-data', JSON.stringify({
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
         recorrentes: state.recorrentes,
         pontuais: state.pontuais,
         despesas: state.despesas,
         categorias: state.categorias
-      }), false);
-    }catch(e){ console.error('storage save error', e); }
+      }));
+    }catch(e){}
+  }
+
+  function persist(){
+    saveCache();
+    if(applyingRemote) return; // don't echo back a write we just received from the server
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(function(){
+      setDoc(dataDocRef, {
+        recorrentes: state.recorrentes,
+        pontuais: state.pontuais,
+        despesas: state.despesas,
+        categorias: state.categorias,
+        updatedAt: serverTimestamp()
+      }).catch(function(e){ console.error('Firestore save error', e); });
+    }, 400);
   }
 
   async function load(){
+    // instant paint from local cache while we connect
     try{
-      var res = await window.storage.get('financeiro-data', false);
-      if(res && res.value){
-        var d = JSON.parse(res.value);
-        state.recorrentes = d.recorrentes || [];
-        state.pontuais = d.pontuais || [];
-        state.despesas = d.despesas || [];
-        state.categorias = d.categorias || [];
+      var raw = localStorage.getItem(CACHE_KEY);
+      if(raw){
+        var c = JSON.parse(raw);
+        state.recorrentes = c.recorrentes || [];
+        state.pontuais = c.pontuais || [];
+        state.despesas = c.despesas || [];
+        state.categorias = c.categorias || [];
       }
-    }catch(e){ /* no data yet */ }
+    }catch(e){}
     state.loaded = true;
     render();
+
+    onSnapshot(dataDocRef, function(snap){
+      if(!snap.exists()) return;
+      var d = snap.data();
+      applyingRemote = true;
+      state.recorrentes = d.recorrentes || [];
+      state.pontuais = d.pontuais || [];
+      state.despesas = d.despesas || [];
+      state.categorias = d.categorias || [];
+      state.loaded = true;
+      saveCache();
+      if(!state.modal) render(); // avoid clobbering a form the user is actively filling in
+      applyingRemote = false;
+    }, function(err){
+      console.error('Firestore sync error', err);
+    });
   }
 
   // ---------- helpers ----------
