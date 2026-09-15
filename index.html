@@ -38,7 +38,7 @@
   .header .eyebrow{font-size:11px;letter-spacing:.09em;color:var(--ink-faint);font-weight:600;margin-bottom:6px;}
   .logo{display:flex;align-items:baseline;gap:0;font-weight:800;font-size:30px;letter-spacing:-.01em;}
   .logo .part1{color:var(--ink);}
-  .logo .part2{color:var(--blue);position:relative;}
+  .logo .part2{color:var(--ink);position:relative;}
 
   /* Tabs */
   .tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-top:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
@@ -62,6 +62,11 @@
   .search-input:focus{outline:none;border-color:var(--blue);}
   .select-input{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:9px 12px;font-size:14px;box-shadow:var(--shadow);color:var(--ink);}
   .spacer{flex:1;}
+  .view-toggle{display:flex;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;box-shadow:var(--shadow);gap:2px;}
+  .view-toggle button{border:none;background:transparent;width:30px;height:28px;border-radius:7px;cursor:pointer;color:var(--ink-faint);display:flex;align-items:center;justify-content:center;}
+  .view-toggle button.active{background:var(--blue-soft);color:var(--blue-dark);}
+  .view-toggle button:hover:not(.active){background:var(--bg);}
+  .view-toggle svg{width:15px;height:15px;}
   .btn{
     border:none;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;
     transition:filter .15s, background .15s; letter-spacing:.01em;
@@ -251,6 +256,10 @@
     categorias: [],
     viewModeRec: 'grid',
     viewModePont: 'grid',
+    viewModeDesp: 'table',
+    sortRec: 'none',
+    sortPont: 'none',
+    sortDesp: 'none',
     searchRec: '',
     searchPont: '',
     searchDesp: '',
@@ -431,6 +440,23 @@
     '</div>';
   }
 
+  function viewToggle(name, current){
+    var gridIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"></rect><rect x="9" y="1" width="6" height="6" rx="1"></rect><rect x="1" y="9" width="6" height="6" rx="1"></rect><rect x="9" y="9" width="6" height="6" rx="1"></rect></svg>';
+    var listIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2.4" rx="1"></rect><rect x="1" y="6.8" width="14" height="2.4" rx="1"></rect><rect x="1" y="11.6" width="14" height="2.4" rx="1"></rect></svg>';
+    return '<div class="view-toggle">' +
+      '<button type="button" title="Cards" data-view-name="'+name+'" data-view-mode="grid" class="'+(current==='grid'?'active':'')+'">'+gridIcon+'</button>' +
+      '<button type="button" title="Lista" data-view-name="'+name+'" data-view-mode="table" class="'+(current==='table'?'active':'')+'">'+listIcon+'</button>' +
+    '</div>';
+  }
+
+  function sortSelect(name, current, label){
+    return '<select class="select-input" data-sort-name="'+name+'">' +
+      '<option value="none">'+label+': padrão</option>' +
+      '<option value="asc" '+(current==='asc'?'selected':'')+'>'+label+': crescente</option>' +
+      '<option value="desc" '+(current==='desc'?'selected':'')+'>'+label+': decrescente</option>' +
+    '</select>';
+  }
+
   function monthNav(){
     return '<div class="month-nav">' +
       '<button data-action="month-prev">&#8249;</button>' +
@@ -569,6 +595,8 @@
 
     html += '<div class="toolbar">' + monthNav() +
       '<input class="search-input" id="search-rec" placeholder="Buscar cliente..." value="'+escapeHtml(state.searchRec)+'">' +
+      sortSelect('rec', state.sortRec, 'Dia de pagamento') +
+      viewToggle('rec', state.viewModeRec) +
       '<div class="spacer"></div>' +
       '<button class="btn btn-primary" data-action="open-recorrente">+ Nova entrada</button>' +
     '</div>';
@@ -577,10 +605,34 @@
       return !state.searchRec || (e.cliente||'').toLowerCase().indexOf(state.searchRec.toLowerCase()) > -1;
     });
 
+    if(state.sortRec === 'asc') filtered.sort(function(a,b){ return (a.diaPagamento||0) - (b.diaPagamento||0); });
+    else if(state.sortRec === 'desc') filtered.sort(function(a,b){ return (b.diaPagamento||0) - (a.diaPagamento||0); });
+
     if(state.recorrentes.length === 0){
       html += emptyState('&#8635;', 'Você ainda não tem entradas recorrentes', 'Adicione a primeira e acompanhe seu faturamento crescer.');
     } else if(filtered.length === 0){
       html += emptyState('&#8635;', 'Nenhuma entrada neste mês', 'Ajuste o mês ou a busca para ver outras entradas.');
+    } else if(state.viewModeRec === 'table'){
+      html += '<div class="table-wrap"><table><thead><tr>' +
+        '<th>CLIENTE</th><th>VALOR</th><th>DIA</th><th>PERÍODO</th><th>STATUS</th><th style="text-align:right;">AÇÕES</th>' +
+      '</tr></thead><tbody>';
+      filtered.forEach(function(e){
+        var v = recValueForMonth(e,y,m);
+        var rec = recRecebido(e,y,m);
+        var endInfo = addMonths(e.startY, e.startM, (e.prazoMeses||1)-1);
+        html += '<tr>' +
+          '<td>'+escapeHtml(e.cliente||'Sem nome')+'</td>' +
+          '<td class="valor-cell">'+fmtCurrency(v)+'</td>' +
+          '<td>'+e.diaPagamento+'</td>' +
+          '<td>'+fmtMonthYear(e.startY,e.startM)+' a '+fmtMonthYear(endInfo.y,endInfo.m)+'</td>' +
+          '<td><span class="pill '+(rec?'green':'amber')+'">'+(rec?'Recebido':'Em aberto')+'</span></td>' +
+          '<td><div class="row-actions" style="justify-content:flex-end;">' +
+            '<button class="icon-btn" data-action="edit-recorrente" data-id="'+e.id+'">&#9998;</button>' +
+            '<button class="icon-btn" data-action="delete-recorrente" data-id="'+e.id+'">&#128465;</button>' +
+          '</div></td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
     } else {
       html += '<div class="entries-grid">';
       filtered.forEach(function(e){
@@ -627,6 +679,8 @@
 
     html += '<div class="toolbar">' + monthNav() +
       '<input class="search-input" id="search-pont" placeholder="Buscar entrada..." value="'+escapeHtml(state.searchPont)+'">' +
+      sortSelect('pont', state.sortPont, 'Dia de pagamento') +
+      viewToggle('pont', state.viewModePont) +
       '<div class="spacer"></div>' +
       '<button class="btn btn-primary" data-action="open-pontual">+ Nova entrada</button>' +
     '</div>';
@@ -635,10 +689,32 @@
       return !state.searchPont || (e.cliente||'').toLowerCase().indexOf(state.searchPont.toLowerCase()) > -1;
     });
 
+    if(state.sortPont === 'asc') filtered.sort(function(a,b){ return (a.diaPagamento||0) - (b.diaPagamento||0); });
+    else if(state.sortPont === 'desc') filtered.sort(function(a,b){ return (b.diaPagamento||0) - (a.diaPagamento||0); });
+
     if(state.pontuais.length === 0){
       html += emptyState('&#9889;', 'Você ainda não tem entradas pontuais', 'Cadastre trabalhos avulsos e acompanhe os recebimentos.');
     } else if(filtered.length === 0){
       html += emptyState('&#9889;', 'Nenhuma entrada neste mês', 'Ajuste o mês ou a busca para ver outras entradas.');
+    } else if(state.viewModePont === 'table'){
+      html += '<div class="table-wrap"><table><thead><tr>' +
+        '<th>CLIENTE</th><th>VALOR</th><th>PAGAMENTO</th><th>DIA</th><th>STATUS</th><th style="text-align:right;">AÇÕES</th>' +
+      '</tr></thead><tbody>';
+      filtered.forEach(function(e){
+        var rec = pontRecebido(e);
+        html += '<tr>' +
+          '<td>'+escapeHtml(e.cliente||'Sem nome')+'</td>' +
+          '<td class="valor-cell">'+fmtCurrency(e.valor)+'</td>' +
+          '<td>'+(e.pagamentoTipo==='parcelado'?'Parcelado em '+(e.parcelas||1)+'x':'À vista')+'</td>' +
+          '<td>'+e.diaPagamento+'</td>' +
+          '<td><span class="pill '+(rec?'green':'amber')+'">'+(rec?'Recebido':'Em aberto')+'</span></td>' +
+          '<td><div class="row-actions" style="justify-content:flex-end;">' +
+            '<button class="icon-btn" data-action="edit-pontual" data-id="'+e.id+'">&#9998;</button>' +
+            '<button class="icon-btn" data-action="delete-pontual" data-id="'+e.id+'">&#128465;</button>' +
+          '</div></td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
     } else {
       html += '<div class="entries-grid">';
       filtered.forEach(function(e){
@@ -690,6 +766,8 @@
         '<option value="a_pagar"'+(state.statusFilterDesp==='a_pagar'?' selected':'')+'>A pagar</option>' +
         '<option value="pago"'+(state.statusFilterDesp==='pago'?' selected':'')+'>Pago</option>' +
       '</select>' +
+      sortSelect('desp', state.sortDesp, 'Vencimento') +
+      viewToggle('desp', state.viewModeDesp) +
       '<div class="spacer"></div>' +
       '<button class="btn btn-primary" data-action="open-despesa">+ Nova despesa</button>' +
     '</div>';
@@ -701,10 +779,35 @@
       return matchSearch && matchStatus;
     });
 
+    if(state.sortDesp === 'asc') filtered.sort(function(a,b){ return (a.vencDia||0) - (b.vencDia||0); });
+    else if(state.sortDesp === 'desc') filtered.sort(function(a,b){ return (b.vencDia||0) - (a.vencDia||0); });
+
     if(state.despesas.length === 0){
       html += emptyState('&#128179;', 'Nenhuma despesa neste mês', 'Lance seus custos fixos e variáveis para enxergar o resultado real.');
     } else if(filtered.length === 0){
       html += emptyState('&#128179;', 'Nenhuma despesa encontrada', 'Ajuste os filtros para ver outras despesas.');
+    } else if(state.viewModeDesp === 'grid'){
+      html += '<div class="entries-grid">';
+      filtered.forEach(function(e){
+        var st = despStatusForMonth(e,y,m);
+        var isPago = st === 'pago';
+        var vencStr = String(e.vencDia).padStart(2,'0')+'/'+String(m).padStart(2,'0')+'/'+y;
+        html += '<div class="entry-card">' +
+          '<div class="row1"><div class="client">'+escapeHtml(e.descricao)+'</div>' +
+          '<span class="pill '+(isPago?'green':'amber')+'">'+(isPago?'Pago':'A pagar')+'</span></div>' +
+          '<div class="value">'+fmtCurrency(e.valor)+'</div>' +
+          '<div class="meta">Vence em '+vencStr+' · <span class="type-pill '+e.tipo+'" style="padding:2px 8px;">'+(e.tipo==='recorrente'?'Recorrente':'Pontual')+'</span></div>' +
+          (e.categoria ? '<div class="desc"><span class="cat-pill">'+escapeHtml(e.categoria)+'</span></div>' : '') +
+          '<div class="actions">' +
+            '<div class="switch '+(isPago?'on':'')+'" data-action="toggle-desp-status" data-id="'+e.id+'"><div class="knob"></div></div>' +
+            '<span class="status-text '+(isPago?'paid':'')+'" style="font-size:12.5px;">'+(isPago?'Pago':'A pagar')+'</span>' +
+            '<div class="spacer"></div>' +
+            '<button class="icon-btn" data-action="edit-despesa" data-id="'+e.id+'">&#9998;</button>' +
+            '<button class="icon-btn" data-action="delete-despesa" data-id="'+e.id+'">&#128465;</button>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
     } else {
       html += '<div class="table-wrap"><table><thead><tr>' +
         '<th>DESCRIÇÃO</th><th>CATEGORIA</th><th>TIPO</th><th>VENCIMENTO</th><th>VALOR</th><th>STATUS</th><th style="text-align:right;">AÇÕES</th>' +
@@ -797,7 +900,7 @@
 
     html += '<div class="field-row">' +
       '<div><label class="flabel">PRAZO (MESES)</label><input type="number" min="1" id="f-prazoMeses" value="'+(d.prazoMeses||6)+'"></div>' +
-      '<div><label class="flabel">&nbsp;</label><div class="helper-text" style="margin-top:12px;">De '+fmtMonthYear(d.startY,d.startM)+' a '+fmtMonthYear(end.y,end.m)+'</div></div>' +
+      '<div><label class="flabel">&nbsp;</label><div class="helper-text" id="prazo-helper" style="margin-top:12px;">De '+fmtMonthYear(d.startY,d.startM)+' a '+fmtMonthYear(end.y,end.m)+'</div></div>' +
     '</div>';
 
     html += '<div class="field"><label class="flabel">VALORES</label><div class="radio-group">' +
@@ -971,6 +1074,26 @@
     if(sDesp){ sDesp.oninput = function(){ state.searchDesp = sDesp.value; renderKeepFocus('search-desp'); }; }
     var stDesp = document.getElementById('status-filter-desp');
     if(stDesp){ stDesp.onchange = function(){ state.statusFilterDesp = stDesp.value; render(); }; }
+
+    document.querySelectorAll('[data-view-name]').forEach(function(el){
+      el.onclick = function(){
+        var name = el.getAttribute('data-view-name');
+        var mode = el.getAttribute('data-view-mode');
+        if(name==='rec') state.viewModeRec = mode;
+        else if(name==='pont') state.viewModePont = mode;
+        else if(name==='desp') state.viewModeDesp = mode;
+        render();
+      };
+    });
+    document.querySelectorAll('[data-sort-name]').forEach(function(el){
+      el.onchange = function(){
+        var name = el.getAttribute('data-sort-name');
+        if(name==='rec') state.sortRec = el.value;
+        else if(name==='pont') state.sortPont = el.value;
+        else if(name==='desp') state.sortDesp = el.value;
+        render();
+      };
+    });
   }
 
   function renderKeepFocus(id){
@@ -998,7 +1121,15 @@
 
     // recorrente live helper text update
     var elPrazo = document.getElementById('f-prazoMeses');
-    if(elPrazo){ elPrazo.oninput = function(){ state.modal.draft.prazoMeses = elPrazo.value; render(); }; }
+    if(elPrazo){
+      elPrazo.oninput = function(){
+        state.modal.draft.prazoMeses = elPrazo.value;
+        var d = state.modal.draft;
+        var end = addMonths(d.startY, d.startM, (parseInt(elPrazo.value)||1)-1);
+        var helper = document.getElementById('prazo-helper');
+        if(helper) helper.textContent = 'De '+fmtMonthYear(d.startY,d.startM)+' a '+fmtMonthYear(end.y,end.m);
+      };
+    }
     document.querySelectorAll('input[name="valoresTipo"]').forEach(function(el){
       el.onchange = function(){ state.modal.draft.valoresTipo = el.value; };
     });
@@ -1133,8 +1264,8 @@
       valor: valor,
       status: document.getElementById('f-status').value,
       observacoes: document.getElementById('f-observacoes').value.trim(),
-      recorrenciaTipo: tipo==='recorrente' ? ((document.querySelector('input[name="recorrenciaTipo"]:checked')||{}).value || 'continua') : undefined,
-      recorrenciaMeses: tipo==='recorrente' ? (parseInt((document.getElementById('f-recorrenciaMeses')||{}).value) || 6) : undefined,
+      recorrenciaTipo: tipo==='recorrente' ? ((document.querySelector('input[name="recorrenciaTipo"]:checked')||{}).value || 'continua') : null,
+      recorrenciaMeses: tipo==='recorrente' ? (parseInt((document.getElementById('f-recorrenciaMeses')||{}).value) || 6) : null,
       statusPorMes: d.statusPorMes || {}
     };
     if(state.modal.editId){
